@@ -1,0 +1,424 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "A CloudFormation Template for Continuous Integration (CI) for AWS Device Farm Automated Testing"
+
+Parameters:
+  AWSDeviceFarmProjectArn:
+    Description: "AWS Device Farm Project ARN (Get with AWS Cli)"
+    Type: String
+  AWSDeviceFarmDevDevicePoolArn:
+    Description: "AWS Device Farm Device Pool ARN for development (Get with AWS Cli)"
+    Type: String
+  AWSDeviceFarmProdDevicePoolArn:
+    Description: "AWS Device Farm Device Pool ARN for Production (Get with AWS Cli)"
+    Type: String
+  AWSStepFunctionsIteratorCount:
+    Default: 10
+    Description: "The number of AWS Step Functions Iterator Loop"
+    Type: Number
+    MinValue: 1
+    MaxValue: 10
+
+Resources:
+  # IAM
+  ## Policy
+  DFPutGetArtifactsS3Bucket:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: PutAndGetObjectToS3BucketAWSDeviceFarmPipeline
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:PutObject"
+              - "s3:GetObject"
+              - "s3:GetObjectVersion"
+            Resource: !GetAtt DFS3Bucket.Arn
+      Roles:
+        - !Ref DFCodeBuildRole
+        - !Ref DFLambdaTestRole
+
+  DFDeviceFarmFullAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: AWSDeviceFarmFullAccess
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "devicefarm:*"
+            Resource: "*" # Device farm service does not allow to select the resource
+      Roles:
+        - !Ref DFLambdaTestRole
+        - !Ref DFLambdaGetRunRole
+
+  DFTriggerStepFunctionsGetRun:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: StartExecutionStepFunctionsLambdaGetRun
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: states:StartExecution
+            Resource: !Ref DFStepFunctionsGetRun
+      Roles:
+        - !Ref DFLambdaTestRole
+
+  ## Role
+  DFCodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "lambda_device_farm_codebuild_role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+          - PolicyName: "logGroup"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Resource: 
+                    - !GetAtt DFCodeBuildLogGroup.Arn
+                    - !Join [":", [!GetAtt DFCodeBuildLogGroup.Arn, "*"]]
+                  Action:
+                    - "logs:CreateLogGroup"
+                    - "logs:CreateLogStream"
+                    - "logs:PutLogEvents"
+      MaxSessionDuration: 3600
+      Path: /service-role/
+
+  DFCodePipelineRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "lambda_device_farm_pipeline_role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "codePipelineToLambdaAndDeviceFarm"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: "*"
+                Condition:
+                  StringEqualsIfExists:
+                    iam:PassedToService:
+                      - cloudformation.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                  - cloudformation:*
+                  - cloudwatch:*
+                  - devicefarm:GetUpload
+                  - devicefarm:CreateUpload
+                  - devicefarm:GetRun
+                  - devicefarm:ListDevicePools
+                  - devicefarm:ListProjects
+                  - devicefarm:ScheduleRun
+                  - lambda:ListFunctions
+                  - lambda:InvokeFunction
+                  - s3:*
+                  - servicecatalog:CreateProvisioningArtifact
+                  - servicecatalog:DeleteProvisioningArtifact
+                  - servicecatalog:DescribeProvisioningArtifact
+                  - servicecatalog:ListProvisioningArtifacts
+                  - servicecatalog:UpdateProduct
+                Resource: "*"
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: !GetAtt DFS3Bucket.Arn
+      MaxSessionDuration: 3600
+      Path: /service-role/
+
+  DFLambdaTestRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "lambda_device_farm_lambda_tester_role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "lambdaTest"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "logs:*"
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - "codepipeline:PutJobSuccessResult"
+                  - "codepipeline:PutJobFailureResult"
+                Resource: "*"
+      MaxSessionDuration: 3600
+      Path: /
+
+  DFLambdaGetRunRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "lambda_device_farm_lambda_get_run_role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "lambdaGetRun"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "logs:*"
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - "codepipeline:PutJobSuccessResult"
+                  - "codepipeline:PutJobFailureResult"
+                Resource: "*"
+      MaxSessionDuration: 3600
+      Path: /
+      
+  DFStepFunctionsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "lambda_device_farm_step_functions_role"
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - stepfunctions.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "stepFunction"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Resource: !GetAtt DFLambdaGetRun.Arn
+                Action: "lambda:InvokeFunction"
+      MaxSessionDuration: 3600
+      Path: /service-role/
+
+  # Log Group
+  DFCodeBuildLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: "/aws/codebuild/lambda_device_farm_build"
+      RetentionInDays: 5
+
+  # S3 Bucket
+  DFS3Bucket: # S3 Bucket for CodePipeline Artifacts
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: "codepipeline-artifacts-for-aws-device-farm"
+      LifecycleConfiguration:
+        Rules:
+          - Id: "delete-one-day-old-file"
+            ExpirationInDays: 1
+            Status: Enabled
+      Tags:
+        - Key: Name
+          Value: S3
+
+  # Lambda functions
+  DFLambdaTester:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt DFLambdaTestRole.Arn
+      Code:
+        S3Bucket: "lambda-functions"
+        S3Key: "lambda-device-farm-tester.zip"
+      Environment:
+        Variables:
+          DEVICE_FARM_PROJECT_ARN: !Ref AWSDeviceFarmProjectArn
+          DEVICE_POOL_ARN: !Ref AWSDeviceFarmDevDevicePoolArn
+          STEP_FUNCTIONS_ITERATOR_COUNT: !Ref AWSStepFunctionsIteratorCount
+          STEP_FUNCTIONS_ITERATOR_INDEX: 0
+          STEP_FUNCTIONS_ITERATOR_STEP: 1
+          STEP_FUNCTIONS_STATE_MACHINE_ARN: !Ref DFStepFunctionsGetRun
+          TEST_PACKAGE_CREATE_UPLOAD_TYPE: APPIUM_WEB_PYTHON_TEST_PACKAGE
+          TEST_PACKAGE_FILE_NAME: "test_bundle.zip"
+          TEST_SPEC_CREATE_UPLOAD_TYPE: APPIUM_WEB_PYTHON_TEST_SPEC
+          TEST_SPEC_FILE_NAME: "testSpec.yml"
+          TEST_TYPE: APPIUM_WEB_PYTHON
+      MemorySize: 256
+      Runtime: "nodejs10.x"
+      Timeout: 600
+      Tags:
+        - Key: Name
+          Value: LambdaTester
+  
+  DFLambdaGetRun:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt DFLambdaGetRunRole.Arn
+      Code:
+        S3Bucket: "lambda-functions"
+        S3Key: "lambda-device-farm-get-run.zip"
+      MemorySize: 256
+      Runtime: "nodejs10.x"
+      Timeout: 600
+      Tags:
+        - Key: Name
+          Value: LambdaGetRun
+
+  # CodeCommit Repository
+  DFCodeCommit: # Appium test scripts repository
+    Type: "AWS::CodeCommit::Repository"
+    Properties:
+      RepositoryName: "python_appium_test_scripts_for_aws_device_farm"
+      RepositoryDescription: "Python Appium test scripts for AWS Device Farm"
+
+  # CodeBuild
+  DFCodeBuild: # To install all Python dependencies and package the output
+    Type: "AWS::CodeBuild::Project"
+    Properties:
+      Name: "lambda_device_farm_code_builder"
+      Description: "CodeBuilder for installing all Python dependencies and package the output for AWS Device Farm"
+      ServiceRole: !GetAtt DFCodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:1.0
+        Type: LINUX_CONTAINER
+      Source:
+        Type: CODEPIPELINE
+      Tags:
+        - Key: Name
+          Value: CodeBuild
+
+  # CodePipeline
+  DFCodePipeline: # CI
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref DFS3Bucket
+      Name: "lambda_device_farm_pipeline"
+      RoleArn: !GetAtt DFCodePipelineRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: 1
+              Configuration:
+                BranchName: master
+                Repository: !Ref DFCodeCommit
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Region: ap-southeast-1
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !Ref DFCodeBuild
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              Region: ap-southeast-1
+              RunOrder: 1
+        - Name: Test
+          Actions:
+            - Name: "Lambda-DeviceFarm-Test"
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: AWS Lambda
+                Version: 1
+              Configuration:
+                FunctionName: AWSDeviceFarmCreateNewRunWebApp
+              InputArtifacts:
+                - Name: BuildArtifact
+              Region: ap-southeast-1
+              RunOrder: 1
+  
+  # Step Functions
+  DFStepFunctionsGetRun:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      DefinitionString: |-
+        {
+          "StartAt": "Iterator",
+          "States": {
+            "Iterator": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:ap-southeast-1:047474169661:function:AWSDeviceFarmGetRunWebApp",
+              "ResultPath": "$.iterator",
+              "Next": "IsCountReached"
+            },
+            "IsCountReached": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.iterator.continue",
+                  "BooleanEquals": true,
+                  "Next": "Wait"
+                }
+              ],
+              "Default": "Done"
+            },
+            "Wait": {
+              "Type": "Wait",
+              "Seconds": 180,
+              "Next": "Iterator"
+            },
+            "Done": {
+              "Type": "Pass",
+              "End": true
+            }
+          }
+        }
+      RoleArn: !GetAtt DFStepFunctionsRole.Arn
+      Tags:
+        -
+          Key: "Name"
+          Value: "lambda_device_farm_step_functions"
