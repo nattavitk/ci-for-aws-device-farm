@@ -1,16 +1,30 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "A CloudFormation Template for Continuous Integration (CI) for AWS Device Farm Automated Testing"
+Description: "AWS CloudFormation Template for Continuous Integration (CI) for AWS Device Farm Automated Testing.
+This solution was implemented by Nattavit Kamoltham, Solutions & Integration Architect in FWD Innovation center team.
+For more information, please contact `nattavit.kamoltham@fwd.com`"
 
+# Parameter from user when creating or updating
 Parameters:
   AWSDeviceFarmProjectArn:
     Description: "AWS Device Farm Project ARN (Get with AWS Cli)"
     Type: String
+    MinLength: 1
   AWSDeviceFarmDevDevicePoolArn:
     Description: "AWS Device Farm Device Pool ARN for development (Get with AWS Cli)"
     Type: String
+    MinLength: 1
   AWSDeviceFarmProdDevicePoolArn:
     Description: "AWS Device Farm Device Pool ARN for Production (Get with AWS Cli)"
     Type: String
+    MinLength: 1
+  AWSS3BucketName:
+    Description: "AWS S3 bucket name which stores bundled Lambda files"
+    Type: String
+    MinLength: 1
+  AWSS3KeyName:
+    Description: "AWS S3 key name of bundles Lambda files (or folder path) e.g., folder/subfolder/"
+    Type: String
+    MinLength: 1
   AWSStepFunctionsIteratorCount:
     Default: 10
     Description: "The number of AWS Step Functions Iterator Loop"
@@ -18,6 +32,7 @@ Parameters:
     MinValue: 1
     MaxValue: 10
 
+# AWS Resources
 Resources:
   # IAM
   ## Policy
@@ -266,10 +281,8 @@ Resources:
       Handler: "index.handler"
       Role: !GetAtt DFLambdaTestRole.Arn
       Code:
-        # S3Bucket: "lambda-functions" # Change to the correct path
-        # S3Key: "lambda-device-farm-tester.zip" # Change to the correct path
-        S3Bucket: "fwd-innovation" # Change to the correct path
-        S3Key: "tide/lambda/lambda-device-farm-tester.zip" # Change to the correct path
+        S3Bucket: !Ref AWSS3BucketName
+        S3Key: !Sub "${AWSS3KeyName}lambda-device-farm-tester.zip"
       Environment:
         Variables:
           DEVICE_FARM_PROJECT_ARN: !Ref AWSDeviceFarmProjectArn
@@ -298,10 +311,8 @@ Resources:
       Handler: "index.handler"
       Role: !GetAtt DFLambdaGetRunRole.Arn
       Code:
-        # S3Bucket: "lambda-functions" # Change to the correct path
-        # S3Key: "lambda-device-farm-get-run.zip" # Change to the correct path
-        S3Bucket: "fwd-innovation" # Change to the correct path
-        S3Key: "tide/lambda/lambda-device-farm-get-run.zip" # Change to the correct path
+        S3Bucket: !Ref AWSS3BucketName
+        S3Key: !Sub "${AWSS3KeyName}lambda-device-farm-get-run.zip" # Change to the correct path
       MemorySize: 256
       Runtime: "nodejs10.x"
       Timeout: 600
