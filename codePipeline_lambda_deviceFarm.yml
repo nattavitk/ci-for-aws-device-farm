@@ -369,7 +369,7 @@ Resources:
                 RepositoryName: "aws_device_farm_appium_python_cloudformation"
               OutputArtifacts:
                 - Name: SourceArtifact
-              Region: ap-southeast-1
+              Region: !Ref AWS::Region
               RunOrder: 1
         - Name: Build
           Actions:
@@ -385,7 +385,7 @@ Resources:
                 - Name: SourceArtifact
               OutputArtifacts:
                 - Name: BuildArtifact
-              Region: ap-southeast-1
+              Region: !Ref AWS::Region
               RunOrder: 1
         - Name: Test
           Actions:
@@ -399,7 +399,7 @@ Resources:
                 FunctionName: !Ref DFLambdaTester
               InputArtifacts:
                 - Name: BuildArtifact
-              Region: ap-southeast-1
+              Region: !Ref AWS::Region
               RunOrder: 1
   
   # Step Functions
