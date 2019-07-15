@@ -33,7 +33,9 @@ Resources:
               - "s3:PutObject"
               - "s3:GetObject"
               - "s3:GetObjectVersion"
-            Resource: !GetAtt DFS3Bucket.Arn
+            Resource: 
+              - !GetAtt DFS3Bucket.Arn
+              - !Join ["/", [!GetAtt DFS3Bucket.Arn, "*"]]
       Roles:
         - !Ref DFCodeBuildRole
         - !Ref DFLambdaTestRole
@@ -221,7 +223,7 @@ Resources:
             Effect: Allow
             Principal: 
               Service: 
-                - stepfunctions.amazonaws.com
+                - !Sub states.${AWS::Region}.amazonaws.com
             Action: sts:AssumeRole
       Policies:
         - PolicyName: "stepFunction"
@@ -238,7 +240,7 @@ Resources:
   DFCodeBuildLogGroup:
     Type: "AWS::Logs::LogGroup"
     Properties:
-      LogGroupName: "/aws/codebuild/lambda_device_farm_build"
+      LogGroupName: "/aws/codebuild/lambda_device_farm_code_builder"
       RetentionInDays: 5
 
   # S3 Bucket
@@ -259,11 +261,15 @@ Resources:
   DFLambdaTester:
     Type: "AWS::Lambda::Function"
     Properties:
+      Description: "Lambda function to create the run on AWS Device Farm"
+      FunctionName: DFLambdaTestCreateRunOnDeviceFarm
       Handler: "index.handler"
       Role: !GetAtt DFLambdaTestRole.Arn
       Code:
-        S3Bucket: "lambda-functions"
-        S3Key: "lambda-device-farm-tester.zip"
+        # S3Bucket: "lambda-functions" # Change to the correct path
+        # S3Key: "lambda-device-farm-tester.zip" # Change to the correct path
+        S3Bucket: "fwd-innovation" # Change to the correct path
+        S3Key: "tide/lambda/lambda-device-farm-tester.zip" # Change to the correct path
       Environment:
         Variables:
           DEVICE_FARM_PROJECT_ARN: !Ref AWSDeviceFarmProjectArn
@@ -287,11 +293,15 @@ Resources:
   DFLambdaGetRun:
     Type: "AWS::Lambda::Function"
     Properties:
+      Description: "Lambda function to get the run status on AWS Device Farm"
+      FunctionName: DFLambdaGetRunStatusFromDeviceFarm
       Handler: "index.handler"
       Role: !GetAtt DFLambdaGetRunRole.Arn
       Code:
-        S3Bucket: "lambda-functions"
-        S3Key: "lambda-device-farm-get-run.zip"
+        # S3Bucket: "lambda-functions" # Change to the correct path
+        # S3Key: "lambda-device-farm-get-run.zip" # Change to the correct path
+        S3Bucket: "fwd-innovation" # Change to the correct path
+        S3Key: "tide/lambda/lambda-device-farm-get-run.zip" # Change to the correct path
       MemorySize: 256
       Runtime: "nodejs10.x"
       Timeout: 600
@@ -303,7 +313,7 @@ Resources:
   DFCodeCommit: # Appium test scripts repository
     Type: "AWS::CodeCommit::Repository"
     Properties:
-      RepositoryName: "python_appium_test_scripts_for_aws_device_farm"
+      RepositoryName: "aws_device_farm_appium_python_cloudformation"
       RepositoryDescription: "Python Appium test scripts for AWS Device Farm"
 
   # CodeBuild
@@ -345,7 +355,7 @@ Resources:
                 Version: 1
               Configuration:
                 BranchName: master
-                Repository: !Ref DFCodeCommit
+                RepositoryName: "aws_device_farm_appium_python_cloudformation"
               OutputArtifacts:
                 - Name: SourceArtifact
               Region: ap-southeast-1
@@ -372,10 +382,10 @@ Resources:
               ActionTypeId:
                 Category: Invoke
                 Owner: AWS
-                Provider: AWS Lambda
+                Provider: Lambda
                 Version: 1
               Configuration:
-                FunctionName: AWSDeviceFarmCreateNewRunWebApp
+                FunctionName: !Ref DFLambdaTester
               InputArtifacts:
                 - Name: BuildArtifact
               Region: ap-southeast-1
@@ -385,38 +395,38 @@ Resources:
   DFStepFunctionsGetRun:
     Type: "AWS::StepFunctions::StateMachine"
     Properties:
-      DefinitionString: |-
-        {
-          "StartAt": "Iterator",
-          "States": {
-            "Iterator": {
-              "Type": "Task",
-              "Resource": "arn:aws:lambda:ap-southeast-1:047474169661:function:AWSDeviceFarmGetRunWebApp",
-              "ResultPath": "$.iterator",
-              "Next": "IsCountReached"
-            },
-            "IsCountReached": {
-              "Type": "Choice",
-              "Choices": [
-                {
-                  "Variable": "$.iterator.continue",
-                  "BooleanEquals": true,
-                  "Next": "Wait"
-                }
-              ],
-              "Default": "Done"
-            },
-            "Wait": {
-              "Type": "Wait",
-              "Seconds": 180,
-              "Next": "Iterator"
-            },
-            "Done": {
-              "Type": "Pass",
-              "End": true
+      DefinitionString: !Sub |-
+          {
+            "StartAt": "Iterator",
+            "States": {
+              "Iterator": {
+                "Type": "Task",
+                "Resource": "${DFLambdaGetRun.Arn}",
+                "ResultPath": "$.iterator",
+                "Next": "IsCountReached"
+              },
+              "IsCountReached": {
+                "Type": "Choice",
+                "Choices": [
+                  {
+                    "Variable": "$.iterator.continue",
+                    "BooleanEquals": true,
+                    "Next": "Wait"
+                  }
+                ],
+                "Default": "Done"
+              },
+              "Wait": {
+                "Type": "Wait",
+                "Seconds": 180,
+                "Next": "Iterator"
+              },
+              "Done": {
+                "Type": "Pass",
+                "End": true
+              }
             }
           }
-        }
       RoleArn: !GetAtt DFStepFunctionsRole.Arn
       Tags:
         -
