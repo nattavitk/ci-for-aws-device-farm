@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "AWS CloudFormation Template for Continuous Integration (CI) for AWS Device Farm Automated Testing.
-This solution was implemented by Nattavit Kamoltham, Solutions & Integration Architect in FWD Innovation center team.
-For more information, please contact `nattavit.kamoltham@fwd.com`"
+This solution was implemented by Nattavit Kamoltham, Solutions & Integration Architect.
+For more information, please contact `kamoltham.n.t@gmail.com`"
 
 # Parameter from user when creating or updating
 Parameters:

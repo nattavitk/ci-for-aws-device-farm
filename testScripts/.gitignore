@@ -1,0 +1,20 @@
+# code
+.Python
+.DS_Store
+.pytest_cache/
+bin/
+include/
+lib/
+pip-selfcheck.json
+selenium/
+requirements.txt
+wheelhouse/
+*.pyc
+venv/
+
+# Output
+*.zip
+
+# editor
+.vscode
+.idea
