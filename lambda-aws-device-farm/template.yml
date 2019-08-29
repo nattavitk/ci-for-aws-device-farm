@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: An AWS Serverless Specification template describing your function.
+Resources:
+  AWSDeviceFarmCreateNewRunWebApp:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs10.x
+      CodeUri: deviceFarm
+      Description: ''
+      MemorySize: 256
+      Timeout: 610
+      Role: 'arn:aws:iam::047474169661:role/CodePipelineLambdaExecRole'
+      Environment:
+        Variables:
+          STEP_FUNCTIONS_STATE_MACHINE_ARN: >-
+            arn:aws:states:ap-southeast-1:047474169661:stateMachine:AWSStepFunctionsCallLambdaGetRunDeviceFarm
+          DEVICE_POOL_ARN: >-
+            arn:aws:devicefarm:us-west-2:047474169661:devicepool:08c20947-f499-4c6f-9031-195814feb0be/56285965-b5c9-42ac-83e4-2d2e00d868b5
+          STEP_FUNCTIONS_ITERATOR_STEP: '1'
+          TEST_TYPE: APPIUM_WEB_PYTHON
+          TEST_PACKAGE_FILE_NAME: test_bundle.zip
+          TEST_SPEC_CREATE_UPLOAD_TYPE: APPIUM_WEB_PYTHON_TEST_SPEC
+          STEP_FUNCTIONS_ITERATOR_COUNT: '10'
+          DEVICE_FARM_PROJECT_ARN: >-
+            arn:aws:devicefarm:us-west-2:047474169661:project:08c20947-f499-4c6f-9031-195814feb0be
+          TEST_SPEC_FILE_NAME: testSpec.yml
+          STEP_FUNCTIONS_ITERATOR_INDEX: '0'
+          TEST_PACKAGE_CREATE_UPLOAD_TYPE: APPIUM_WEB_PYTHON_TEST_PACKAGE
+      Tags:
+        Name: AWSDeviceFarmCreateNewRunWebApp
